@@ -143,7 +143,6 @@ check_port(){
 port_list=$(devil port list)
 tcp_ports=$(echo "$port_list" | grep -c "tcp")
 udp_ports=$(echo "$port_list" | grep -c "udp")
-
 if [[ $tcp_ports -ne 2 || $udp_ports -ne 1 ]]; then
     echo "端口数量不符合要求，正在调整..."
 
@@ -199,12 +198,20 @@ if [[ $tcp_ports -ne 2 || $udp_ports -ne 1 ]]; then
     sleep 3
     #devil binexec on >/dev/null 2>&1
     #kill -9 $(ps -o ppid= -p $$) >/dev/null 2>&1
+    port_list=$(devil port list)
+    tcp_ports=$(echo "$port_list" | grep -c "tcp")
+    udp_ports=$(echo "$port_list" | grep -c "udp")
+    tcp_ports=$(echo "$port_list" | awk '/tcp/ {print $1}')
+    tcp_port1=$(echo "$tcp_ports" | sed -n '1p')
+    tcp_port2=$(echo "$tcp_ports" | sed -n '2p')
+    udp_port=$(echo "$port_list" | awk '/udp/ {print $1}')
+    purple "当前TCP端口: $tcp_port1 和 $tcp_port2"
+    purple "当前UDP端口: $udp_port"
 else
     tcp_ports=$(echo "$port_list" | awk '/tcp/ {print $1}')
     tcp_port1=$(echo "$tcp_ports" | sed -n '1p')
     tcp_port2=$(echo "$tcp_ports" | sed -n '2p')
     udp_port=$(echo "$port_list" | awk '/udp/ {print $1}')
-
     echo "你的vless-reality的TCP端口: $tcp_port1" 
     echo "你的vmess的TCP端口(设置Argo固定域名端口)：$tcp_port2"
     echo "你的hysteria2的UDP端口: $udp_port"
@@ -231,7 +238,7 @@ get_argodomain() {
       sleep 2
     done  
     if [ -z ${argodomain} ]; then
-    argodomain="Argo临时域名暂时获取失败，Argo节点暂不可用"
+    argodomain="Argo临时域名暂时获取失败，Argo节点暂不可用(保活过程中会自动恢复)，其他节点依旧可用"
     fi
     echo "$argodomain"
   fi
@@ -531,7 +538,7 @@ openssl req -new -x509 -days 3650 -key "private.key" -out "cert.pem" -subj "/CN=
       }
     ],
 EOF
-if [[ "$nb" =~ (14|15|16) ]]; then
+if [[ "$nb" =~ (14|15) ]]; then
 cat >> config.json <<EOF 
     "rules": [
     {
@@ -624,6 +631,7 @@ else
      #args="tunnel --edge-ip-version auto --no-autoupdate --protocol http2 --logfile boot.log --loglevel info --url http://localhost:$vmess_port"
      args="tunnel --url http://localhost:$vmess_port --no-autoupdate --logfile boot.log --loglevel info"
     fi
+    pkill -x "$agg"
     nohup ./"$agg" $args >/dev/null 2>&1 &
     sleep 10
 if pgrep -x "$agg" > /dev/null; then
@@ -641,14 +649,11 @@ fi
 if [ -f "$WORKDIR/boot.log" ]; then
 argosl=$(cat "$WORKDIR/boot.log" 2>/dev/null | grep -a trycloudflare.com | awk 'NR==2{print}' | awk -F// '{print $2}' | awk '{print $1}')
 checkhttp=$(curl -o /dev/null -s -w "%{http_code}\n" "https://$argosl")
-else
-argogd=$(cat $WORKDIR/ARGO_DOMAIN.log 2>/dev/null)
-checkhttp=$(curl --max-time 2 -o /dev/null -s -w "%{http_code}\n" "https://$argogd")
 fi
-if ([ -z "$ARGO_DOMAIN" ] && ! ps aux | grep '[t]unnel --u' > /dev/null) || [ "$checkhttp" -ne 404 ]; then
+if ([ -z "$ARGO_DOMAIN" ] && ! ps aux | grep '[t]unnel --u' > /dev/null) || [[ "$checkhttp" != 404 ]]; then
 ps aux | grep '[t]unnel --u' | awk '{print $2}' | xargs -r kill -9 > /dev/null 2>&1
 cfgo
-elif ([ -n "$ARGO_DOMAIN" ] && ! ps aux | grep '[t]unnel --n' > /dev/null) || [ "$checkhttp" -ne 404 ]; then
+elif [ -n "$ARGO_DOMAIN" ] && ! ps aux | grep '[t]unnel --n' > /dev/null; then
 ps aux | grep '[t]unnel --n' | awk '{print $2}' | xargs -r kill -9 > /dev/null 2>&1
 cfgo
 else
@@ -670,9 +675,9 @@ vl_link="vless://$UUID@$IP:$vless_port?encryption=none&flow=xtls-rprx-vision&sec
 echo "$vl_link" > jh.txt
 vmws_link="vmess://$(echo "{ \"v\": \"2\", \"ps\": \"$snb-vmess-ws-$USERNAME\", \"add\": \"$IP\", \"port\": \"$vmess_port\", \"id\": \"$UUID\", \"aid\": \"0\", \"scy\": \"auto\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"\", \"path\": \"/$UUID-vm?ed=2048\", \"tls\": \"\", \"sni\": \"\", \"alpn\": \"\", \"fp\": \"\"}" | base64 -w0)"
 echo "$vmws_link" >> jh.txt
-vmatls_link="vmess://$(echo "{ \"v\": \"2\", \"ps\": \"$snb-vmess-ws-tls-argo-$USERNAME\", \"add\": \"icook.hk\", \"port\": \"8443\", \"id\": \"$UUID\", \"aid\": \"0\", \"scy\": \"auto\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"$argodomain\", \"path\": \"/$UUID-vm?ed=2048\", \"tls\": \"tls\", \"sni\": \"$argodomain\", \"alpn\": \"\", \"fp\": \"\"}" | base64 -w0)"
+vmatls_link="vmess://$(echo "{ \"v\": \"2\", \"ps\": \"$snb-vmess-ws-tls-argo-$USERNAME\", \"add\": \"www.visa.com.hk\", \"port\": \"8443\", \"id\": \"$UUID\", \"aid\": \"0\", \"scy\": \"auto\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"$argodomain\", \"path\": \"/$UUID-vm?ed=2048\", \"tls\": \"tls\", \"sni\": \"$argodomain\", \"alpn\": \"\", \"fp\": \"\"}" | base64 -w0)"
 echo "$vmatls_link" >> jh.txt
-vma_link="vmess://$(echo "{ \"v\": \"2\", \"ps\": \"$snb-vmess-ws-argo-$USERNAME\", \"add\": \"icook.hk\", \"port\": \"8880\", \"id\": \"$UUID\", \"aid\": \"0\", \"scy\": \"auto\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"$argodomain\", \"path\": \"/$UUID-vm?ed=2048\", \"tls\": \"\"}" | base64 -w0)"
+vma_link="vmess://$(echo "{ \"v\": \"2\", \"ps\": \"$snb-vmess-ws-argo-$USERNAME\", \"add\": \"www.visa.com.hk\", \"port\": \"8880\", \"id\": \"$UUID\", \"aid\": \"0\", \"scy\": \"auto\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"$argodomain\", \"path\": \"/$UUID-vm?ed=2048\", \"tls\": \"\"}" | base64 -w0)"
 echo "$vma_link" >> jh.txt
 hy2_link="hysteria2://$UUID@$IP:$hy2_port?security=tls&sni=www.bing.com&alpn=h3&insecure=1#$snb-hy2-$USERNAME"
 echo "$hy2_link" >> jh.txt
@@ -851,7 +856,7 @@ cat > sing_box.json <<EOF
         }
     },
 {
-            "server": "icook.hk",
+            "server": "www.visa.com.hk",
             "server_port": 8443,
             "tag": "vmess-tls-argo-$snb-$USERNAME",
             "tls": {
@@ -878,7 +883,7 @@ cat > sing_box.json <<EOF
             "uuid": "$UUID"
         },
 {
-            "server": "icook.hk",
+            "server": "www.visa.com.hk",
             "server_port": 8880,
             "tag": "vmess-argo-$snb-$USERNAME",
             "tls": {
@@ -1075,7 +1080,7 @@ proxies:
 
 - name: vmess-tls-argo-$snb-$USERNAME                         
   type: vmess
-  server: icook.hk                        
+  server: www.visa.com.hk                        
   port: 8443                                     
   uuid: $UUID       
   alterId: 0
@@ -1091,7 +1096,7 @@ proxies:
 
 - name: vmess-argo-$snb-$USERNAME                         
   type: vmess
-  server: icook.hk                        
+  server: www.visa.com.hk                        
   port: 8880                                     
   uuid: $UUID       
   alterId: 0
